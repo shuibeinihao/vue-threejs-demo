@@ -1,0 +1,149 @@
+<template>
+  <div id="container" class="btn">点击这里</div>
+</template>
+<script setup>
+import * as THREE from "three";
+import { onMounted } from "vue";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+// 引入cannon-es
+import * as CANNON from "cannon-es";
+
+const world = new CANNON.World();
+// 设置物理世界重力加速度
+world.gravity.set(0, -50, 0);
+const sphereMaterial = new CANNON.Material();
+// 物理小球：对应threejs的网格小球
+const body = new CANNON.Body({
+  mass: 0.3, //碰撞体质量
+  material: sphereMaterial, //碰撞体材质
+  shape: new CANNON.Sphere(1.5)
+});
+
+body.position.y = 100;
+let addBool = false; //标记body是否已经添加到world中
+onMounted(() => {
+  document.getElementById("container").addEventListener("click", function () {
+    body.position.y = 100; //点击按钮，body回到下落的初始位置
+    if (!addBool) {
+      world.addBody(body); //添加到物理世界，才开始下落
+      addBool = true;
+    }
+  });
+});
+
+const audio = new Audio("/src/sounds/ping_pong.mp3");
+body.addEventListener("collide", event => {
+  const contact = event.contact;
+  const ImpactV = contact.getImpactVelocityAlongNormal();
+  // 碰撞越狠，声音越大
+  //这样音量范围0~1
+  audio.volume = ImpactV / 100;
+  audio.play();
+});
+
+// 物理地面
+const groundMaterial = new CANNON.Material();
+const groundBody = new CANNON.Body({
+  mass: 0, // 质量为0，始终保持静止，不会受到力碰撞或加速度影响
+  shape: new CANNON.Plane(),
+  material: groundMaterial
+});
+// 改变平面默认的方向，法线默认沿着z轴，旋转到平面向上朝着y方向
+groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0); //旋转规律类似threejs 平面
+world.addBody(groundBody);
+
+// 设置地面材质和小球材质之间的碰撞反弹恢复系数
+const contactMaterial = new CANNON.ContactMaterial(
+  groundMaterial,
+  sphereMaterial,
+  {
+    restitution: 0.8 //反弹恢复系数
+  }
+);
+// 把关联的材质添加到物理世界中
+world.addContactMaterial(contactMaterial);
+
+// 网格小球
+const geometry = new THREE.SphereGeometry(1.5);
+const material = new THREE.MeshLambertMaterial({
+  color: 0xffff00
+});
+const mesh = new THREE.Mesh(geometry, material);
+mesh.position.y = 100;
+
+// 网格地面
+const planeGeometry = new THREE.PlaneGeometry(200, 200);
+const texture = new THREE.TextureLoader().load(
+  "/src/textures/carbon/Carbon_Normal.png"
+);
+texture.wrapS = THREE.RepeatWrapping;
+texture.wrapT = THREE.RepeatWrapping;
+texture.repeat.set(3, 3);
+const planeMaterial = new THREE.MeshLambertMaterial({
+  color: "#fff",
+  map: texture
+});
+const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+planeMesh.rotateX(-Math.PI / 2);
+
+//场景
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#ccc");
+scene.add(mesh, planeMesh); //模型对象添加到场景中
+
+//辅助观察的坐标系
+const axesHelper = new THREE.AxesHelper(100);
+scene.add(axesHelper);
+
+//光源设置
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+directionalLight.position.set(100, 60, 50);
+scene.add(directionalLight);
+const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambient);
+
+//相机
+const width = window.innerWidth;
+const height = window.innerHeight;
+const camera = new THREE.PerspectiveCamera(30, width / height, 1, 3000);
+camera.position.set(292, 223, 185);
+camera.lookAt(0, 0, 0);
+
+// WebGL渲染器设置
+const renderer = new THREE.WebGLRenderer({
+  antialias: true //开启优化锯齿
+});
+renderer.setPixelRatio(window.devicePixelRatio); //防止输出模糊
+renderer.setSize(width, height);
+document.body.appendChild(renderer.domElement);
+
+// 渲染循环
+function render() {
+  world.step(1 / 60); //更新物理计算
+  mesh.position.copy(body.position); // 网格小球与物理小球位置同步
+  renderer.render(scene, camera);
+  requestAnimationFrame(render);
+}
+render();
+
+const controls = new OrbitControls(camera, renderer.domElement);
+
+// 画布跟随窗口变化
+window.onresize = function () {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  controls.updateProjectionMatrix();
+};
+</script>
+<style scoped lang="less">
+.btn {
+  background: #066;
+  color: #fff;
+  padding: 5px 10px;
+  border-radius: 3px;
+  position: fixed;
+  top: 10px;
+  left: 20px;
+}
+</style>
